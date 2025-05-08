@@ -1,139 +1,98 @@
-# DocReaderMCP
-An MCP server that can read code documents
+# DocReader MCP 工具
 
-## Pipeline
-1. 给出文档链接
-2. 找出所有页面 （链接名称一般和内容有关）
-3. 利用LLM匹配用户prompt和具体页面，例如"jax如何实现linear layer?"，LLM负责找出某个相关页面
-4. 下载这一页面，转换成markdown，结合用户prompt，给出回答
+DocReader 是一个强大的文档阅读和搜索工具，基于 Model Context Protocol (MCP) 实现。它能够从网页文档中搜索、提取和整合信息，帮助AI助手回答关于文档内容的问题。
 
-## TODO
-- 查找多个链接
+## 功能特点
 
-## 当前Demo的输出结果
+- 从文档网站搜索相关页面
+- 提取特定页面内容
+- 跟踪和探索页面链接
+- 整合和总结发现的信息
 
-### 使用了文档：
-(doc) (base) crossia@crossia-macbook DocReaderMCP % python url_to_pdf.py https://flax.readthedocs.io/en/latest/ -c --depth 5 
+## 安装
 
-请输入您的问题: how to write a linear layer with flax?
-正在从 https://flax.readthedocs.io/en/latest/ 爬取文档链接...
-找到 78 个文档链接
-正在查找最相关页面...
-最相关页面: https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html
-正在处理页面并生成回答...
-成功将 https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html 转换为PDF: temp.pdf
+### 环境要求
 
-回答:
-在 Flax 中创建线性层可以使用 `nnx.Linear` 模块。以下是基本用法示例：
+- Python 3.7+
+- fastmcp
+- beautifulsoup4
+- requests
+- openai
+- python-dotenv
 
-```python
-from flax import nnx
-import jax.numpy as jnp
+### 安装步骤
 
-# 创建线性层 (输入特征3维，输出特征4维)
-layer = nnx.Linear(
-    in_features=3, 
-    out_features=4,
-    rngs=nnx.Rngs(0)  # 随机数生成器
-)
+1. 克隆或下载本仓库
 
-# 前向计算 (输入形状为(批量大小, 输入特征))
-x = jnp.ones((1, 3))
-output = layer(x)
+2. 安装依赖：
+
+```bash
+pip install fastmcp beautifulsoup4 requests openai python-dotenv
 ```
 
-关键参数说明：
-- `in_features`: 输入维度
-- `out_features`: 输出维度 
-- `use_bias`: 是否使用偏置项(默认True)
-- `kernel_init`: 权重初始化方式(默认方差缩放)
-- `bias_init`: 偏置初始化方式(默认零初始化)
+3. 创建 `.env` 文件，添加 API 密钥：
 
-该层会对输入的最后维度进行线性变换，输出形状为 `(..., out_features)`。
-(doc) (base) crossia@crossia-macbook DocReaderMCP % python url_to_pdf.py https://flax.readthedocs.io/en/latest/ -c --depth 5 
-
-
-### 没使用文档：
-请输入您的问题: how to write a linear layer with flax?
-正在从 https://flax.readthedocs.io/en/latest/ 爬取文档链接...
-找到 78 个文档链接
-正在查找最相关页面...
-最相关页面: https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html
-正在处理页面并生成回答...
-成功将 https://flax.readthedocs.io/en/latest/api_reference/flax.nnx/nn/linear.html 转换为PDF: temp.pdf
-
-回答:
-### 使用Flax编写线性层的方法
-
-在Flax中编写线性层(全连接层)可以通过以下方式实现：
-
-### 基本实现方法
-
-```python
-from flax import linen as nn
-
-class LinearLayer(nn.Module):
-    features: int  # 定义输出特征数
-    
-    def setup(self):
-        # 初始化权重和偏置
-        self.kernel = self.param('kernel', 
-                               nn.initializers.lecun_normal(),
-                               (self.features,))  # 权重矩阵
-        self.bias = self.param('bias',
-                             nn.initializers.zeros,
-                             (self.features,))    # 偏置向量
-    
-    def __call__(self, x):
-        # 前向传播计算
-        return x @ self.kernel + self.bias
+```
+API_KEY=your_api_key_here
 ```
 
-### 更简洁的实现（推荐）
+## 使用方法
 
-Flax提供了`nn.Dense`类，它是预实现的线性层：
+### 直接运行
 
-```python
-from flax import linen as nn
-
-# 直接使用nn.Dense
-model = nn.Dense(features=64)  # 64维输出的线性层
+```bash
+cd path/to/DocReaderMCP
+python DocReader.py
 ```
 
-### 完整示例
+### 使用 fastmcp CLI 运行
 
-```python
-import jax
-import jax.numpy as jnp
-from flax import linen as nn
-
-class MLP(nn.Module):
-    hidden_size: int
-    output_size: int
-    
-    def setup(self):
-        self.dense1 = nn.Dense(features=self.hidden_size)
-        self.dense2 = nn.Dense(features=self.output_size)
-    
-    def __call__(self, x):
-        x = self.dense1(x)
-        x = nn.relu(x)
-        x = self.dense2(x)
-        return x
-
-# 初始化模型
-model = MLP(hidden_size=128, output_size=10)
-key = jax.random.PRNGKey(0)
-params = model.init(key, jnp.ones((1, 784)))  # 假设输入是784维
+```bash
+cd path/to/DocReaderMCP
+fastmcp run DocReader.py
 ```
 
-### 关键点说明
+### 测试功能
 
-1. `nn.Dense`会自动处理权重初始化
-2. 输入维度会根据第一次调用自动推断
-3. 可以自定义初始化方式，如：
-   ```python
-   nn.Dense(features=64, kernel_init=nn.initializers.he_normal())
-   ```
+可以运行测试脚本验证功能：
 
-Flax的线性层与PyTorch的`nn.Linear`功能类似，但遵循了JAX的函数式编程范式。
+```bash
+python test_doc_reader.py
+```
+
+### 在 Cursor 中使用
+
+#### 方法一：临时添加
+
+1. 在 Cursor 界面中，点击左侧边栏中的扩展/插件图标
+2. 找到 MCP 部分或"添加工具"选项
+3. 选择"添加本地 MCP 工具"
+4. 输入工具名称，如"DocReader"
+5. 选择运行方式（指向脚本路径或连接 URL）
+
+#### 方法二：持久化安装
+
+```bash
+cd path/to/DocReaderMCP
+fastmcp install DocReader.py --name "文档阅读器" --with beautifulsoup4 requests openai python-dotenv
+```
+
+## 工具集
+
+DocReader MCP 提供以下工具：
+
+1. **search_docs**：搜索文档页面，找出与用户查询最相关的页面
+2. **extract_content**：从指定 URL 提取页面内容
+3. **follow_link**：从源页面提取并跟踪链接
+4. **summarize_findings**：根据已收集的信息总结发现
+
+## 推荐工作流
+
+1. 首先使用 `search_docs` 搜索文档主页上的相关页面
+2. 然后使用 `extract_content` 提取最相关页面的内容
+3. 如果需要进一步探索，使用 `follow_link` 跟踪相关链接
+4. 最后用 `summarize_findings` 总结所有发现
+
+## 示例
+
+请参考 `test_doc_reader.py` 中的示例，了解如何调用各工具函数。

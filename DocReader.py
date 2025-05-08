@@ -4,24 +4,43 @@ import sys
 from bs4 import BeautifulSoup
 import requests
 from urllib.parse import urljoin, urlparse
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 from openai import OpenAI
 import warnings
 
 from dotenv import load_dotenv
-
 from fastmcp import FastMCP
 
 load_dotenv()
 api_key = os.getenv('API_KEY')
 
-
 warnings.filterwarnings("ignore", message=".*PDF text extraction.*")
 
 client = OpenAI(
-    base_url="https://api.netmind.ai/inference-api/openai/v1",  # NetMind的API地址
+    base_url="https://api.netmind.ai/inference-api/openai/v1",
     api_key=api_key,
 )
+
+# 创建FastMCP实例，提供详细描述
+mcp = FastMCP("""
+Document Reader MCP工具集 - 文档搜索与内容提取系统
+这个工具集让您可以:
+1. 从文档网站搜索相关页面
+2. 提取特定页面内容
+3. 深入探索链接
+4. 总结您的发现
+
+工作流建议:
+- 首先使用search_docs搜索文档主页上的相关页面
+- 然后使用extract_content提取最相关页面的内容
+- 如果需要进一步探索，使用follow_link跟踪相关链接
+- 最后用summarize_findings总结所有发现
+
+您可以根据需要多次使用这些工具，直到收集到足够的信息来解决用户的问题。
+""")
+
+# 存储会话级别的搜索历史
+search_history = []
 
 def extract_doc_links(base_url: str, max_depth: int = 1) -> List[Tuple[str, str]]:
     """
@@ -92,7 +111,8 @@ def find_most_relevant_page(pages: List[Tuple[str, str]], prompt: str, max_docs:
     )
     
     # 返回最多max_docs个相关页面的URL
-    return response.choices[0].message.content.strip().splitlines()[:max_docs]
+    content = response.choices[0].message.content if response and response.choices else ""
+    return content.strip().splitlines()[:max_docs] if content else []
 
 def extract_page_content(url: str) -> str:
     """
@@ -112,71 +132,218 @@ def extract_page_content(url: str) -> str:
         # 如果找不到特定的内容区域，则使用整个body
         if main_content:
             page_content = main_content.get_text(strip=True)
-        else:
+        elif soup.body:
             page_content = soup.body.get_text(strip=True)
+        else:
+            page_content = ""
         
         return page_content
     except Exception as e:
         print(f"提取页面 {url} 内容时出错: {str(e)}")
         return ""
 
-def process_page(urls: List[str], prompt: str) -> str:
+def get_page_links(url: str) -> List[Tuple[str, str]]:
     """
-    处理多个页面并组合内容生成回答
-    :param urls: 页面URL列表
-    :param prompt: 用户提示
-    :return: 生成的回答
+    从页面中提取所有链接
+    :param url: 页面URL
+    :return: 链接和标题的列表 [(url, title)]
     """
     try:
-        all_content = []
-        if isinstance(urls, str):
-            urls = [urls]
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        links = []
         
-        for url in urls:
-            content = extract_page_content(url)
-            if content:
-                all_content.append(f"--- 来自 {url} 的内容 ---\n{content}")
-        
-        if not all_content:
-            return "无法从提供的URL中提取有效内容"
-        
-        combined_content = "\n\n".join(all_content)
-        return combined_content
-    
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            absolute_url = urljoin(url, href)
+            link_title = link.get_text().strip() or absolute_url
+            links.append((absolute_url, link_title))
+            
+        return links
     except Exception as e:
-        return f"处理页面时出错: {str(e)}"
+        print(f"提取页面 {url} 链接时出错: {str(e)}")
+        return []
 
+def add_to_search_history(url: str, query: str, content: str) -> None:
+    """添加内容到搜索历史"""
+    global search_history
+    content_snippet = content[:200] + "..." if len(content) > 200 else content
+    search_history.append({
+        "url": url,
+        "query": query,
+        "content_snippet": content_snippet,
+        "content": content
+    })
 
-mcp = FastMCP("This tool can find relevant documents according to user prompt. You should provide a document main page URL and a user prompt. You can optionally set the depth of crawling and the maximum number of documents to retrieve.")
-
+# 工具1: 搜索文档
 @mcp.tool()
-def read_doc(url: str, user_prompt: str, depth: int = 5, max_pages: int = 3) -> str:
+def search_docs(
+    doc_url: str, 
+    query: str, 
+    depth: int = 2, 
+    max_results: int = 5
+) -> List[Dict[str, str]]:
     """
-    读取文档并回答问题
-    :param url: 文档主页URL
-    :param prompt: 用户问题
-    :param depth: 爬取深度
-    :param max_pages: 最大检索的相关文档数量
-    :return: 生成的回答
+    搜索文档页面，找出与用户查询最相关的页面
+    
+    参数:
+    - doc_url: 文档主页或索引页的URL
+    - query: 用户查询或问题
+    - depth: 爬取深度（1-5）
+    - max_results: 返回的最大结果数量
+    
+    返回:
+    相关页面列表，包含URL和标题
     """
-    base_url = url
-    if not base_url.startswith(('http://', 'https://')):
-        print("错误: 请输入有效的HTTP/HTTPS URL")
-        sys.exit(1)
-        
-    doc_urls = extract_doc_links(base_url, depth)
-    if doc_urls:
-        relevant_urls = find_most_relevant_page(doc_urls, user_prompt, max_docs=max_pages)
-        
-        response = process_page(relevant_urls, user_prompt)
+    doc_links = extract_doc_links(doc_url, max_depth=depth)
+    
+    if not doc_links:
+        return []
+    
+    relevant_urls = find_most_relevant_page(doc_links, query, max_docs=max_results)
+    
+    result = []
+    for url in relevant_urls:
+        # 找到对应的标题
+        title = next((title for link, title in doc_links if link == url), url)
+        result.append({"url": url, "title": title})
+    
+    return result
+
+# 工具2: 提取内容
+@mcp.tool()
+def extract_content(
+    url: str, 
+    query: str = ""
+) -> Dict[str, Any]:
+    """
+    从指定URL提取页面内容
+    
+    参数:
+    - url: 要提取内容的页面URL
+    - query: 用户查询或问题（可选，用于记录历史）
+    
+    返回:
+    包含页面内容、URL和标题的字典
+    """
+    content = extract_page_content(url)
+    
+    if not content:
+        return {"url": url, "content": "", "success": False}
+    
+    # 保存到搜索历史
+    add_to_search_history(url, query, content)
+    
+    # 尝试获取页面标题
+    try:
+        response = requests.get(url, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        title = soup.title.string if soup.title else url
+    except:
+        title = url
+    
+    return {
+        "url": url,
+        "title": title,
+        "content": content,
+        "success": True,
+        "length": len(content)
+    }
+
+# 工具3: 跟踪链接
+@mcp.tool()
+def follow_link(
+    source_url: str, 
+    link_pattern: str = "", 
+    max_links: int = 5
+) -> List[Dict[str, str]]:
+    """
+    从源页面提取并跟踪链接
+    
+    参数:
+    - source_url: 源页面URL
+    - link_pattern: 链接标题或URL中应包含的文本模式（可选）
+    - max_links: 返回的最大链接数
+    
+    返回:
+    找到的链接列表，包含URL和标题
+    """
+    links = get_page_links(source_url)
+    
+    if not links:
+        return []
+    
+    # 如果提供了链接模式，过滤链接
+    filtered_links = []
+    if link_pattern:
+        for url, title in links:
+            if link_pattern.lower() in url.lower() or link_pattern.lower() in title.lower():
+                filtered_links.append((url, title))
     else:
-        response = process_page([url], user_prompt)
-    return response
+        filtered_links = links
+    
+    # 限制结果数量
+    filtered_links = filtered_links[:max_links]
+    
+    result = []
+    for url, title in filtered_links:
+        result.append({"url": url, "title": title})
+    
+    return result
 
+# 工具4: 总结发现
+@mcp.tool()
+def summarize_findings(
+    query: str
+) -> Dict[str, Any]:
+    """
+    根据已收集的信息总结发现
+    
+    参数:
+    - query: 用户的原始查询或问题
+    
+    返回:
+    总结信息，包含主要发现和参考的URL
+    """
+    global search_history
+    
+    if not search_history:
+        return {"summary": "无可用信息进行总结", "sources": []}
+    
+    # 构建总结提示
+    content_blocks = []
+    sources = []
+    
+    for entry in search_history:
+        content_blocks.append(f"来源: {entry['url']}\n内容: {entry['content'][:1000]}...")
+        sources.append(entry['url'])
+    
+    combined_content = "\n\n".join(content_blocks)
+    
+    summary_prompt = f"""基于以下从文档中提取的信息，总结对于问题"{query}"的发现：
 
+{combined_content}
 
+请提供一个全面但简洁的总结，引用相关的事实和信息。
+"""
+    
+    # 使用LLM生成总结
+    response = client.chat.completions.create(
+        model="deepseek-ai/DeepSeek-V3-0324",
+        messages=[
+            {"role": "system", "content": "你是一个擅长总结文档信息的助手。请基于提供的内容片段，生成一个全面但简洁的总结，突出与用户问题最相关的信息。"},
+            {"role": "user", "content": summary_prompt}
+        ],
+        temperature=0.3
+    )
+    
+    summary = response.choices[0].message.content if response and response.choices else "无法生成总结"
+    
+    return {
+        "summary": summary,
+        "sources": sources,
+        "query": query
+    }
 
 if __name__ == "__main__":
-    mcp = FastMCP("This tool can read documents and answer questions based on them.")
     mcp.run()
-    # print(read_doc("https://flax.readthedocs.io/en/latest/index.html", "如何用flax训练模型？", depth=5, max_pages=3))

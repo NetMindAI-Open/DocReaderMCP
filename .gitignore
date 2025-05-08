@@ -1,1 +1,7 @@
 .env
+# Python related files
+__pycache__
+*.pyc
+
+# OS X
+.DS_Store
