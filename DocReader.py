@@ -23,20 +23,13 @@ client = OpenAI(
 
 # 创建FastMCP实例，提供详细描述
 mcp = FastMCP("""
-Document Reader MCP工具集 - 文档搜索与内容提取系统
-这个工具集让您可以:
+Document Reader MCP工具集 - 根据文档内容完成指定任务
+这个工具集的工作流程是:
 1. 从文档网站搜索相关页面
 2. 提取特定页面内容
-3. 深入探索链接
-4. 总结您的发现
+3. 深入探索链接，寻找与用户问题相关的内容
+4. 根据文档内容最终完成用户指令
 
-工作流建议:
-- 首先使用search_docs搜索文档主页上的相关页面
-- 然后使用extract_content提取最相关页面的内容
-- 如果需要进一步探索，使用follow_link跟踪相关链接
-- 最后用summarize_findings总结所有发现
-
-您可以根据需要多次使用这些工具，直到收集到足够的信息来解决用户的问题。
 """)
 
 # 存储会话级别的搜索历史
@@ -176,7 +169,7 @@ def add_to_search_history(url: str, query: str, content: str) -> None:
     })
 
 # 工具1: 搜索文档
-@mcp.tool()
+# @mcp.tool()
 def search_docs(
     doc_url: str, 
     query: str, 
@@ -211,7 +204,7 @@ def search_docs(
     return result
 
 # 工具2: 提取内容
-@mcp.tool()
+# @mcp.tool()
 def extract_content(
     url: str, 
     query: str = ""
@@ -251,7 +244,7 @@ def extract_content(
     }
 
 # 工具3: 跟踪链接
-@mcp.tool()
+# @mcp.tool()
 def follow_link(
     source_url: str, 
     link_pattern: str = "", 
@@ -292,7 +285,7 @@ def follow_link(
     return result
 
 # 工具4: 总结发现
-@mcp.tool()
+# @mcp.tool()
 def summarize_findings(
     query: str
 ) -> Dict[str, Any]:
@@ -310,28 +303,61 @@ def summarize_findings(
     if not search_history:
         return {"summary": "无可用信息进行总结", "sources": []}
     
+    # 分块摘要参数
+    MAX_CONTENT_LENGTH = 12000
+    MAX_CHUNK_LENGTH = 3000
+    
+    def chunk_and_summarize(content, url, query):
+        """如果内容过长则分块摘要，每块结合query做摘要"""
+        if len(content) <= MAX_CONTENT_LENGTH:
+            return content
+        # 按段落分块
+        paragraphs = content.split('\n\n')
+        chunks = []
+        current = ""
+        for para in paragraphs:
+            if len(current) + len(para) < MAX_CHUNK_LENGTH:
+                current += para + "\n\n"
+            else:
+                chunks.append(current)
+                current = para + "\n\n"
+        if current:
+            chunks.append(current)
+        # 针对性摘要
+        summaries = []
+        for idx, chunk in enumerate(chunks):
+            prompt = f'请根据用户问题"{query}"对以下内容做摘要，只保留与问题最相关的信息（来源: {url}，第{idx+1}块）：\n{chunk}'
+            response = client.chat.completions.create(
+                model="deepseek-ai/DeepSeek-V3-0324",
+                messages=[
+                    {"role": "system", "content": "你是一个文档助手，只需根据用户问题对内容做针对性摘要，以避免信息冗余。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+            summary = response.choices[0].message.content if response and response.choices else ""
+            summaries.append(summary)
+        return "\n".join(summaries)
+    
     # 构建总结提示
     content_blocks = []
     sources = []
     
     for entry in search_history:
-        content_blocks.append(f"来源: {entry['url']}\n内容: {entry['content'][:1000]}...")
+        # 针对每条内容做分块摘要
+        summarized_content = chunk_and_summarize(entry['content'], entry['url'], query)
+        content_blocks.append(f"来源: {entry['url']}\n内容: {summarized_content[:1000]}...")
         sources.append(entry['url'])
     
     combined_content = "\n\n".join(content_blocks)
     
-    summary_prompt = f"""基于以下从文档中提取的信息，总结对于问题"{query}"的发现：
-
-{combined_content}
-
-请提供一个全面但简洁的总结，引用相关的事实和信息。
-"""
+    summary_prompt = f"""用户问题："{query}"\n\n 文档内容：\n\n{combined_content}\n\n\\n"""
     
     # 使用LLM生成总结
     response = client.chat.completions.create(
         model="deepseek-ai/DeepSeek-V3-0324",
         messages=[
-            {"role": "system", "content": "你是一个擅长总结文档信息的助手。请基于提供的内容片段，生成一个全面但简洁的总结，突出与用户问题最相关的信息。"},
+            {"role": "system", "content": "你是一个根据文档信息解决用户问题的助手。请基于提供的文档内容，完成用户问题。"},
             {"role": "user", "content": summary_prompt}
         ],
         temperature=0.3
@@ -345,5 +371,52 @@ def summarize_findings(
         "query": query
     }
 
+
+@mcp.tool()
+def read_doc(
+    doc_url: str,
+    query: str,
+    depth: int = 2,
+    max_results: int = 3
+) -> Dict[str, Any]:
+    """
+    根据文档URL和用户问题，完成MCP工作流程，返回最终回复
+
+    参数:
+    - doc_url: 文档URL
+    - query: 用户问题
+    - depth: 爬取深度（1-5）
+    - max_results: 查找的文档数量，默认为3
+    
+    """
+    results = search_docs(doc_url, query, depth=depth, max_results=max_results)
+    if not results:
+        return {"error": "未找到相关文档"}
+    
+    content = extract_content(results[0]['url'], query)
+    if not content['success']:
+        return {"error": "提取内容失败"}
+    
+    
+    summary = summarize_findings(query)
+    if not summary:
+        return "error: 总结失败"
+    
+    # 5. 返回最终回复
+    return summary['summary']
+    
+    
+    
+    
+
 if __name__ == "__main__":
+
+    # 测试read_doc
+    # result = read_doc(
+    #     doc_url="https://flax.readthedocs.io/en/latest/",
+    #     query="如何用flax写一个LSTM网络？",
+    #     depth=2,
+    #     max_results=3
+    # )
+    # print(result)
     mcp.run()
