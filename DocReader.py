@@ -22,7 +22,7 @@ client = OpenAI(
 # Create a FastMCP instance for the MCP Client
 mcp = FastMCP(CLIENT_DESCRIPTION)
 
-# 存储会话级别的搜索历史
+# Store search history
 search_history = []
 
 def extract_doc_links(base_url: str, max_depth: int = 1) -> List[Tuple[str, str]]:
@@ -35,35 +35,36 @@ def extract_doc_links(base_url: str, max_depth: int = 1) -> List[Tuple[str, str]
     visited = set()
     to_visit = [(base_url, 0)]
     doc_links = []
-    
-    while to_visit:
+    MAX_LINKS = 100
+
+    def normalize_url(url):
+        parts = urlparse(url)
+        return f"{parts.scheme}://{parts.netloc}{parts.path}"
+
+    while to_visit and len(doc_links) < MAX_LINKS:
         url, depth = to_visit.pop(0)
-        if url in visited or depth > max_depth:
+        norm_url = normalize_url(url)
+        if norm_url in visited or depth > max_depth:
             continue
+        visited.add(norm_url)
         try:
             response = requests.get(url, timeout=10)
+            if not response.ok:
+                continue
             soup = BeautifulSoup(response.text, 'html.parser')
-            visited.add(url)
-            
             for link in soup.find_all('a', href=True):
                 href = link['href']
                 absolute_url = urljoin(url, href)
-                
-                # 只处理同域名的链接
-                if urlparse(absolute_url).netloc == urlparse(base_url).netloc:
-                    # 文档链接一般会包含特定关键词或路径，例如docs或document
-                    if 'docs' in absolute_url.lower() or 'document' in absolute_url.lower():
-                        link_title = link.get_text().strip() or absolute_url
-                        doc_links.append((absolute_url, link_title))
-                    elif depth < max_depth:
-                        to_visit.append((absolute_url, depth + 1))
-                    # 限制文档链接数量
-                    if len(doc_links) > 100:
-                        break
-                        
+                if urlparse(absolute_url).netloc != urlparse(base_url).netloc:
+                    continue
+                link_title = link.get_text().strip() or absolute_url
+                doc_links.append((absolute_url, link_title))
+                if depth < max_depth:
+                    to_visit.append((absolute_url, depth + 1))
+                if len(doc_links) >= MAX_LINKS:
+                    break
         except Exception as e:
             print(f"Error processing {url}: {str(e)}")
-            
     return doc_links
 
 def find_most_relevant_page(pages: List[Tuple[str, str]], prompt: str, max_docs: int = 3) -> List[str]:
@@ -118,32 +119,9 @@ def extract_page_content(url: str) -> str:
         print(f"Error getting content from {url}: {str(e)}")
         return ""
 
-# def get_page_links(url: str) -> List[Tuple[str, str]]:
-#     """
-#     从页面中提取所有链接
-#     :param url: 页面URL
-#     :return: 链接和标题的列表 [(url, title)]
-#     """
-#     try:
-#         response = requests.get(url, timeout=10)
-#         soup = BeautifulSoup(response.text, 'html.parser')
-#         links = []
-        
-#         for link in soup.find_all('a', href=True):
-#             href = link['href']
-#             absolute_url = urljoin(url, href)
-#             link_title = link.get_text().strip() or absolute_url
-#             links.append((absolute_url, link_title))
-            
-#         return links
-#     except Exception as e:
-#         print(f"提取页面 {url} 链接时出错: {str(e)}")
-#         return []
-
 def add_to_search_history(url: str, query: str, content: str) -> None:
     """Appending content to document search history."""
     global search_history
-    # content_snippet = content[:200] + "..." if len(content) > 200 else content
     search_history.append({
         "url": url,
         "query": query,
@@ -222,49 +200,7 @@ def extract_content(
         "length": len(content)
     }
 
-# 工具3: 跟踪链接
-# @mcp.tool()
-# def follow_link(
-#     source_url: str, 
-#     link_pattern: str = "", 
-#     max_links: int = 5
-# ) -> List[Dict[str, str]]:
-#     """
-#     从源页面提取并跟踪链接
-    
-#     参数:
-#     - source_url: 源页面URL
-#     - link_pattern: 链接标题或URL中应包含的文本模式（可选）
-#     - max_links: 返回的最大链接数
-    
-#     返回:
-#     找到的链接列表，包含URL和标题
-#     """
-#     links = get_page_links(source_url)
-    
-#     if not links:
-#         return []
-    
-#     # 如果提供了链接模式，过滤链接
-#     filtered_links = []
-#     if link_pattern:
-#         for url, title in links:
-#             if link_pattern.lower() in url.lower() or link_pattern.lower() in title.lower():
-#                 filtered_links.append((url, title))
-#     else:
-#         filtered_links = links
-    
-#     # 限制结果数量
-#     filtered_links = filtered_links[:max_links]
-    
-#     result = []
-#     for url, title in filtered_links:
-#         result.append({"url": url, "title": title})
-    
-#     return result
 
-# 工具4: 总结发现
-# @mcp.tool()
 def summarize_findings(
     query: str
 ) -> Dict[str, Any]:
@@ -299,6 +235,7 @@ def summarize_findings(
         summaries = []
         for idx, chunk in enumerate(chunks):
             prompt = PROMPT_SUMMARIZE_CHUNK.format(query=query, url=url, idx=idx+1, chunk=chunk)
+            prompt = prompt[:100000]
             response = client.chat.completions.create(
                 model="deepseek-ai/DeepSeek-V3-0324",
                 messages=[
@@ -364,12 +301,4 @@ def read_doc(
 
 if __name__ == "__main__":
 
-    # 测试read_doc
-    result = read_doc(
-        doc_url="https://huggingface.co/docs/transformers/en/model_doc/t5",
-        query="如何利用T5来对于一个CSV数据文件进行监督微调？请写出完整代码。",
-        depth=2,
-        max_results=3
-    )
-    print(result)
     mcp.run()
