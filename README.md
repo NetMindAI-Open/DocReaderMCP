@@ -6,8 +6,8 @@ DocReader 是一个强大的文档阅读和搜索工具，基于 Model Context P
 
 - 从文档网站搜索相关页面
 - 提取特定页面内容
-- 跟踪和探索页面链接
 - 整合和总结发现的信息
+- 一键完成文档问答工作流
 
 ## 安装
 
@@ -79,20 +79,46 @@ fastmcp install DocReader.py --name "文档阅读器" --with beautifulsoup4 requ
 
 ## 工具集
 
-DocReader MCP 提供以下工具：
+DocReader MCP 实现了以下工具函数：
 
 1. **search_docs**：搜索文档页面，找出与用户查询最相关的页面
 2. **extract_content**：从指定 URL 提取页面内容
-3. **follow_link**：从源页面提取并跟踪链接
-4. **summarize_findings**：根据已收集的信息总结发现
+3. **summarize_findings**：根据已收集的信息总结发现
+4. **read_doc**：一键完成文档搜索、内容提取和总结的完整工作流
+
+> ⚠️ 注意：`follow_link` 工具在当前版本未实现，相关描述和示例已移除。
 
 ## 推荐工作流
 
 1. 首先使用 `search_docs` 搜索文档主页上的相关页面
 2. 然后使用 `extract_content` 提取最相关页面的内容
-3. 如果需要进一步探索，使用 `follow_link` 跟踪相关链接
-4. 最后用 `summarize_findings` 总结所有发现
+3. 最后用 `summarize_findings` 总结所有发现
+4. 或直接使用 `read_doc` 一步完成上述流程
 
 ## 示例
 
 请参考 `test_doc_reader.py` 中的示例，了解如何调用各工具函数。
+
+简要示例：
+
+```python
+from DocReader import search_docs, extract_content, summarize_findings, read_doc
+
+doc_url = "https://flax.readthedocs.io/en/latest/index.html"
+query = "如何用flax训练模型？请帮我写训练代码跟训练好了之后的推理代码"
+
+# 1. 搜索相关页面
+results = search_docs(doc_url, query, depth=2, max_results=3)
+
+# 2. 提取内容
+if results:
+    page_content = extract_content(results[0]['url'], query)
+
+# 3. 总结发现
+summary = summarize_findings(query)
+print(summary['summary'])
+
+# 4. 一步式工作流
+final_answer = read_doc(doc_url, query)
+print(final_answer)
+```
