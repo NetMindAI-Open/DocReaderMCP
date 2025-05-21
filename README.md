@@ -1,124 +1,115 @@
-# DocReader MCP 工具
+# DocReader MCP Tool
 
-DocReader 是一个强大的文档阅读和搜索工具，基于 Model Context Protocol (MCP) 实现。它能够从网页文档中搜索、提取和整合信息，帮助AI助手回答关于文档内容的问题。
+DocReader is a powerful tool for reading and searching documents, built on the Model Context Protocol (MCP). It enables LLMs to search, extract, and synthesize information from web-based documents, assisting AI assistants in answering questions accordingly.
 
-## 功能特点
+## Features
 
-- 从文档网站搜索相关页面
-- 提取特定页面内容
-- 整合和总结发现的信息
-- 一键完成文档问答工作流
+- Search for relevant pages across documentation websites
+- Extract content from specific pages
+- Aggregate and summarize discovered information
+- Complete the document Q&A workflow in a single step
 
-## 安装
+## Installation
 
-### 环境要求
+### Requirements
 
-- Python 3.7+
+- Python 3.7 or higher
 - fastmcp
 - beautifulsoup4
 - requests
 - openai
 - python-dotenv
 
-### 安装步骤
+### Installation Steps
 
-1. 克隆或下载本仓库
+1. Clone or download this repository.
 
-2. 安装依赖：
+2. Install the required dependencies:
 
 ```bash
 pip install fastmcp beautifulsoup4 requests openai python-dotenv
 ```
 
-3. 创建 `.env` 文件，添加 API 密钥：
+1. Create a `.env` file and add your API key, preferably a [NetMind](https://www.netmind.ai) API key:
 
 ```
 API_KEY=your_api_key_here
 ```
 
-## 使用方法
+## Usage
 
-### 直接运行
+### Run Directly
 
 ```bash
 cd path/to/DocReaderMCP
 python DocReader.py
 ```
 
-### 使用 fastmcp CLI 运行
+### Run with fastmcp CLI
 
 ```bash
 cd path/to/DocReaderMCP
 fastmcp run DocReader.py
 ```
 
-### 测试功能
+### Using with Cursor
 
-可以运行测试脚本验证功能：
+#### Method 1: Temporary Addition
 
-```bash
-python test_doc_reader.py
-```
+1. In the Cursor interface, click the extensions/plugins icon in the left sidebar.
+2. Locate the MCP section or select "Add Tool".
+3. Choose "Add Local MCP Tool".
+4. Enter a tool name, such as "DocReader".
+5. Select the execution method (either point to the script path or connect via URL).
 
-### 在 Cursor 中使用
-
-#### 方法一：临时添加
-
-1. 在 Cursor 界面中，点击左侧边栏中的扩展/插件图标
-2. 找到 MCP 部分或"添加工具"选项
-3. 选择"添加本地 MCP 工具"
-4. 输入工具名称，如"DocReader"
-5. 选择运行方式（指向脚本路径或连接 URL）
-
-#### 方法二：持久化安装
+#### Method 2: Persistent Installation
 
 ```bash
 cd path/to/DocReaderMCP
-fastmcp install DocReader.py --name "文档阅读器" --with beautifulsoup4 requests openai python-dotenv
+fastmcp install DocReader.py --name "DocReader" --with beautifulsoup4 requests openai python-dotenv
 ```
 
-## 工具集
+## Toolset
 
-DocReader MCP 实现了以下工具函数：
+DocReader MCP provides the following tool functions:
 
-1. **search_docs**：搜索文档页面，找出与用户查询最相关的页面
-2. **extract_content**：从指定 URL 提取页面内容
-3. **summarize_findings**：根据已收集的信息总结发现
-4. **read_doc**：一键完成文档搜索、内容提取和总结的完整工作流
+1. **search_docs**: Search documentation pages to find those most relevant to your query.
+2. **extract_content**: Extract content from a specified URL.
+3. **summarize_findings**: Summarize the information collected.
+4. **read_doc**: Complete the entire workflow—search, extraction, and summarization—in one step.
 
-> ⚠️ 注意：`follow_link` 工具在当前版本未实现，相关描述和示例已移除。
 
-## 推荐工作流
+## Recommended Workflow
 
-1. 首先使用 `search_docs` 搜索文档主页上的相关页面
-2. 然后使用 `extract_content` 提取最相关页面的内容
-3. 最后用 `summarize_findings` 总结所有发现
-4. 或直接使用 `read_doc` 一步完成上述流程
+1. Start by using `search_docs` to find relevant pages on the documentation site.
+2. Use `extract_content` to retrieve content from the most relevant pages.
+3. Summarize your findings with `summarize_findings`.
+4. Alternatively, use `read_doc` to perform all these steps at once.
 
-## 示例
+## Example
 
-请参考 `test_doc_reader.py` 中的示例，了解如何调用各工具函数。
+See `test_doc_reader.py` for more examples of how to use each tool function.
 
-简要示例：
+A brief example:
 
 ```python
 from DocReader import search_docs, extract_content, summarize_findings, read_doc
 
 doc_url = "https://flax.readthedocs.io/en/latest/index.html"
-query = "如何用flax训练模型？请帮我写训练代码跟训练好了之后的推理代码"
+query = "How do I train a model with flax? Please help me write the training code and the inference code after training."
 
-# 1. 搜索相关页面
+# 1. Search for relevant pages
 results = search_docs(doc_url, query, depth=2, max_results=3)
 
-# 2. 提取内容
+# 2. Extract content
 if results:
     page_content = extract_content(results[0]['url'], query)
 
-# 3. 总结发现
+# 3. Summarize findings
 summary = summarize_findings(query)
 print(summary['summary'])
 
-# 4. 一步式工作流
+# 4. One-step workflow
 final_answer = read_doc(doc_url, query)
 print(final_answer)
 ```
