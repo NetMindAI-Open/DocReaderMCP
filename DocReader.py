@@ -129,7 +129,6 @@ def add_to_search_history(url: str, query: str, content: str) -> None:
         "content": content
     })
 
-# @mcp.tool()
 def search_docs(
     doc_url: str, 
     query: str, 
@@ -162,7 +161,6 @@ def search_docs(
     
     return result
 
-# @mcp.tool()
 def extract_content(
     url: str, 
     query: str = ""
